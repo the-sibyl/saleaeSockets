@@ -14,18 +14,10 @@ const (
 func main() {
 	sd := NewSaleaeDevice()
 	sd.initialize()
-	var err error
-	sd.readLength, err = sd.saleaeConn.Write([]byte("get_num_samples\000"))
-	if err != nil {
-		fmt.Println("Write error: ", err)
-	}
-
-	fmt.Println("Count: ", sd.readLength)
 
 	for ;; {
-		sd.readLength, _ = sd.saleaeConn.Read(sd.tcpInputBuffer)
-		fmt.Println(string(sd.tcpInputBuffer[:sd.readLength]))
-		time.Sleep(time.Millisecond * 100)
+		sd.sendCommand()
+		time.Sleep(time.Second)
 	}
 }
 
@@ -66,7 +58,23 @@ func (dev *SaleaeDevice) initialize() error {
 	return nil
 }
 
-func (dev *SaleaeDevice) sendCommand() {
+func (dev *SaleaeDevice) sendCommand() (err error) {
+	dev.readLength, err = dev.saleaeConn.Write([]byte("get_num_samples\000"))
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Count: ", dev.readLength)
+
+	// TODO: Look for ack
+	for ;dev.readLength != 0; {
+		dev.readLength, _ = dev.saleaeConn.Read(dev.tcpInputBuffer)
+		fmt.Println(string(dev.tcpInputBuffer[:dev.readLength]))
+
+		dev.readLength = 0
+	}
+
+	return nil
 
 }
 
