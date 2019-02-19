@@ -9,6 +9,7 @@ import(
 const (
 	DefaultAddressString string = "localhost:10429"
 	DefaultReceiveBufferSize int = 4096
+	DefaultIOTimeoutMilliseconds = 1000
 )
 
 func main() {
@@ -16,8 +17,12 @@ func main() {
 	sd.initialize()
 
 	for ;; {
-		sd.sendCommand()
-		time.Sleep(time.Second)
+		fmt.Println("num samples test:\n")
+		sd.sendCommand("get_num_samples", false)
+		fmt.Println("connected devices test:\n")
+		sd.sendCommand("get_connected_devices", false)
+		fmt.Println("Done with test! Repeating in a few seconds...")
+		time.Sleep(time.Second * 10)
 	}
 }
 
@@ -30,6 +35,12 @@ type SaleaeDevice struct {
 	tcpInputBuffer []byte
 	// Number of bytes received
 	readLength int
+	// Timer for I/O timeouts
+//	ioTimer *time.Timer
+	// Duration for this timer
+//	timerDuration time.Duration
+	// I/O Timeout Duration
+	ioTimeoutDuration time.Duration
 }
 
 // Create a new Saleae "object"
@@ -55,24 +66,66 @@ func (dev *SaleaeDevice) initialize() error {
 		return err
 	}
 
+	// TODO: clean this up
+//	dev.saleaeConn.SetReadDeadline(time.Millisecond * DefaultIOTimeoutMilliseconds)
+
+//	dev.timerDuration = time.Millisecond * DefaultIOTimeoutMilliseconds
+//	dev.ioTimer = time.NewTimer(dev.timerDuration)
+	dev.ioTimeoutDuration = time.Millisecond * DefaultIOTimeoutMilliseconds
+
 	return nil
 }
 
-func (dev *SaleaeDevice) sendCommand() (err error) {
-	dev.readLength, err = dev.saleaeConn.Write([]byte("get_num_samples\000"))
+func (dev *SaleaeDevice) sendCommand(cmd string, largeTransfer bool) (err error) {
+	fmt.Println("Called")
+	// Null character termination
+	_, err = dev.saleaeConn.Write([]byte(cmd + "\000"))
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("Count: ", dev.readLength)
-
 	// TODO: Look for ack
-	for ;dev.readLength != 0; {
-		dev.readLength, _ = dev.saleaeConn.Read(dev.tcpInputBuffer)
-		fmt.Println(string(dev.tcpInputBuffer[:dev.readLength]))
 
-		dev.readLength = 0
+	rc := make(chan bool)
+
+	//dev.ioTimer.Reset(dev.timerDuration)
+
+	socketReadLoop:
+	for ;; {
+		go func(readChan chan bool) {
+				fmt.Println("READCHAN!")
+				dev.saleaeConn.SetReadDeadline(time.Now().Add(dev.ioTimeoutDuration))
+				dev.readLength, _ = dev.saleaeConn.Read(dev.tcpInputBuffer)
+				fmt.Println("done reading")
+				fmt.Println("Count: ", dev.readLength)
+
+				// If ACK, return true to the channel
+				fmt.Println("setting readChan true")
+				readChan <- true
+
+				time.Sleep(time.Millisecond * 50)
+				fmt.Println("persisting")
+		} (rc)
+
+		// 
+		select {
+			// Read channel
+			case <- rc:
+				fmt.Println("read channel!")
+				break socketReadLoop
+
+				/*
+			// Timer channel
+			case <- dev.ioTimer.C:
+				fmt.Println("timer expired")
+				break socketReadLoop
+				*/
+		}
 	}
+
+	fmt.Println("returning")
+	//dev.readLength = 0
+
 
 	return nil
 
